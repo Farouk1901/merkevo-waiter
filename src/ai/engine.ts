@@ -142,15 +142,14 @@ const chromeModel = (): Chrome | undefined => (globalThis as unknown as { Langua
 
 let firebase: { order: GenerativeModel; split: GenerativeModel; translate: GenerativeModel } | null = null;
 
+// Each variable is read by its full name: reading `import.meta.env` as a whole makes Vite inline
+// every VITE_ variable into the bundle, including ones meant for development only.
 function firebaseConfig() {
-  const e = import.meta.env;
-  if (!e.VITE_FIREBASE_API_KEY || !e.VITE_FIREBASE_PROJECT_ID || !e.VITE_FIREBASE_APP_ID) return null;
-  return {
-    apiKey: e.VITE_FIREBASE_API_KEY,
-    authDomain: e.VITE_FIREBASE_AUTH_DOMAIN || `${e.VITE_FIREBASE_PROJECT_ID}.firebaseapp.com`,
-    projectId: e.VITE_FIREBASE_PROJECT_ID,
-    appId: e.VITE_FIREBASE_APP_ID,
-  };
+  const apiKey = import.meta.env.VITE_FIREBASE_API_KEY;
+  const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID;
+  const appId = import.meta.env.VITE_FIREBASE_APP_ID;
+  if (!apiKey || !projectId || !appId) return null;
+  return { apiKey, projectId, appId, authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || `${projectId}.firebaseapp.com` };
 }
 
 function initFirebase() {
@@ -160,8 +159,9 @@ function initFirebase() {
   const app: FirebaseApp = initializeApp(cfg);
   // App Check proves requests come from this app, so nobody can spend the Gemini quota with a copied key.
   // Locally a registered debug token stands in for reCAPTCHA.
-  const debugToken = import.meta.env.VITE_APPCHECK_DEBUG_TOKEN;
-  if (debugToken && import.meta.env.DEV) (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: string }).FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
+  // DEV is a build-time constant, so a production bundle never contains the debug token.
+  const debugToken = import.meta.env.DEV ? import.meta.env.VITE_APPCHECK_DEBUG_TOKEN : undefined;
+  if (debugToken) (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: string }).FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
   const siteKey = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
   if (siteKey || debugToken) {
     initializeAppCheck(app, { provider: new ReCaptchaV3Provider(siteKey || 'debug-only'), isTokenAutoRefreshEnabled: true });

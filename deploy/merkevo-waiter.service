@@ -1,0 +1,22 @@
+[Unit]
+Description=Merkevo Waiter (AI waiter demo, Node/Express on 127.0.0.1:3100)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=waiter
+Group=waiter
+WorkingDirectory=/opt/merkevo-waiter/current
+ExecStart=NODE_BIN --env-file=/opt/merkevo-waiter/current/.env /opt/merkevo-waiter/current/node_modules/tsx/dist/cli.mjs server/index.ts --prod
+Restart=on-failure
+RestartSec=3
+Environment=NODE_ENV=production
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/merkevo-waiter
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

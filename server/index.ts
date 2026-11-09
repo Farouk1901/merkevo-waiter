@@ -10,6 +10,9 @@ import { sanitizeCart } from '../shared/cart.js';
 
 const app = express();
 app.disable('x-powered-by');
+// Behind Caddy on the same machine: take the guest's address from X-Forwarded-For (only from loopback),
+// so the rate limit is per guest and not shared by everyone.
+app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '32kb' }));
 
 const paypal = paypalConfig();
@@ -17,6 +20,8 @@ const paypal = paypalConfig();
 // production (`npm start`), where this server also serves the built app.
 const PROD = process.argv.includes('--prod');
 const PORT = Number(process.env.API_PORT) || (PROD ? Number(process.env.PORT) || 8787 : 8787);
+// Listen on loopback only by default; the reverse proxy is the only way in.
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Payments per table, in memory. Enough for a demo; a real restaurant keeps this in Merkevo.
 type Payment = { orderId: string; table: string; payer: string; total: number; status: 'CREATED' | 'COMPLETED'; at: string };
@@ -150,5 +155,5 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
 export default app;
 
 if (process.argv[1] && path.resolve(fileURLToPath(import.meta.url)).toLowerCase() === path.resolve(process.argv[1]).toLowerCase()) {
-  app.listen(PORT, () => console.log(`Merkevo Waiter API on http://localhost:${PORT} (PayPal: ${paypal ? 'sandbox' : 'mock mode'})`));
+  app.listen(PORT, HOST, () => console.log(`Merkevo Waiter API on http://${HOST}:${PORT} (PayPal: ${paypal ? 'sandbox' : 'mock mode'})`));
 }
