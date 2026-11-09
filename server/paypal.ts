@@ -15,7 +15,7 @@ let token: { value: string; expires: number } | null = null;
 
 async function accessToken(cfg: NonNullable<PayPalConfig>): Promise<string> {
   if (token && token.expires > Date.now() + 60_000) return token.value;
-  const res = await fetch(`${cfg.base}/v1/oauth2/token`, {
+  const res = await send(`${cfg.base}/v1/oauth2/token`, {
     method: 'POST',
     headers: {
       Authorization: 'Basic ' + Buffer.from(`${cfg.clientId}:${cfg.clientSecret}`).toString('base64'),
@@ -33,8 +33,23 @@ export class PayPalError extends Error {
   constructor(message: string, public status = 502, public details?: unknown) { super(message); }
 }
 
+/**
+ * fetch with a timeout and one retry on network errors. Safe to retry because every call carries
+ * the same PayPal-Request-Id, so PayPal returns the first result instead of doing the work twice.
+ */
+async function send(url: string, init: RequestInit, tries = 3): Promise<Response> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetch(url, { ...init, signal: AbortSignal.timeout(20_000) });
+    } catch (e) {
+      if (attempt >= tries) throw new PayPalError(`Could not reach PayPal (${(e as Error).message})`, 504);
+      await new Promise((r) => setTimeout(r, 800));
+    }
+  }
+}
+
 async function call<T>(cfg: NonNullable<PayPalConfig>, path: string, body: unknown, requestId: string): Promise<T> {
-  const res = await fetch(`${cfg.base}${path}`, {
+  const res = await send(`${cfg.base}${path}`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${await accessToken(cfg)}`,
@@ -92,14 +107,11 @@ export function buildOrderBody(o: OrderRequest) {
         ...(i.description ? { description: i.description.slice(0, 127) } : {}),
       })),
     }],
-    payment_source: {
-      paypal: {
-        experience_context: {
-          brand_name: 'Nile Grill (Merkevo Waiter demo)',
-          shipping_preference: 'NO_SHIPPING',
-          user_action: 'PAY_NOW',
-        },
-      },
+    // The JS SDK button flow (popup) expects a plain CREATED order, so no payment_source here.
+    application_context: {
+      brand_name: 'Nile Grill (Merkevo Waiter demo)',
+      shipping_preference: 'NO_SHIPPING',
+      user_action: 'PAY_NOW',
     },
   };
 }

@@ -11,8 +11,13 @@ async function req<T>(path: string, body?: unknown): Promise<T> {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new ApiError(json.error || `Request failed (${res.status})`, json.retryable === true || res.status === 504);
   return json as T;
+}
+
+/** `retryable` means the same request can safely be sent again (for example a capture after a network drop). */
+export class ApiError extends Error {
+  constructor(message: string, public retryable = false) { super(message); }
 }
 
 export const api = {

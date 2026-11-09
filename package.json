@@ -6,9 +6,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n api,web \"tsx watch server/index.ts\" \"vite\"",
+    "dev": "concurrently -k -n api,web \"tsx watch --env-file-if-exists=.env server/index.ts\" \"vite\"",
     "build": "tsc --noEmit && vite build",
-    "start": "tsx server/index.ts --prod",
+    "start": "tsx --env-file-if-exists=.env server/index.ts --prod",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },

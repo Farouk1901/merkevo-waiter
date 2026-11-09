@@ -55,6 +55,7 @@ app.post('/api/orders', async (req, res, next) => {
       ? await createOrder(paypal, built.req, requestId)
       : { id: `MOCK-${randomUUID().slice(0, 8).toUpperCase()}`, status: 'CREATED' };
     payments.set(order.id, { orderId: order.id, table: t, payer: built.payer, total: built.req.total, status: 'CREATED', at: new Date().toISOString() });
+    console.log(`[order] created ${order.id} (${order.status}) table ${t}, ${built.payer}, ${(built.req.total / 100).toFixed(2)}`);
     res.json({ id: order.id, total: built.req.total, payer: built.payer, mock: !paypal });
   } catch (e) { next(e); }
 });
@@ -71,6 +72,7 @@ app.post('/api/orders/:id/capture', async (req, res, next) => {
       status = cap.purchase_units?.[0]?.payments?.captures?.[0]?.status || cap.status;
     }
     if (status === 'COMPLETED') p.status = 'COMPLETED';
+    console.log(`[order] capture ${id}: ${status}`);
     res.json({ id, status, payer: p.payer, total: p.total });
   } catch (e) { next(e); }
 });
@@ -93,7 +95,18 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof BadRequest) return res.status(400).json({ error: err.message });
   if (err instanceof PayPalError) {
     console.error(err.message, JSON.stringify(err.details ?? ''));
-    return res.status(502).json({ error: 'PayPal could not complete that step. Please try again.', issue: err.message });
+    const known: Record<string, string> = {
+      COMPLIANCE_VIOLATION: "PayPal blocked this payment for the restaurant's account (often the account's country can't receive payments). The guest was not charged.",
+      PAYEE_ACCOUNT_RESTRICTED: "The restaurant's PayPal account can't receive payments right now. The guest was not charged.",
+      INSTRUMENT_DECLINED: 'That payment method was declined. Please choose another one in PayPal.',
+      ORDER_NOT_APPROVED: 'The payment was not approved in PayPal yet.',
+    };
+    if (err.status === 504) {
+      // Network trouble between this server and PayPal. Nothing was charged; the approval is still valid.
+      return res.status(504).json({ error: 'We could not reach PayPal to confirm the payment. You have not been charged yet.', retryable: true });
+    }
+    const issue = Object.keys(known).find((k) => err.message.includes(k));
+    return res.status(502).json({ error: issue ? known[issue] : 'PayPal could not complete that step. Please try again.', issue: err.message });
   }
   console.error(err);
   res.status(500).json({ error: 'Something went wrong.' });
