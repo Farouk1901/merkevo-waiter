@@ -1,0 +1,32 @@
+{
+  "name": "merkevo-waiter",
+  "version": "0.1.0",
+  "description": "An AI waiter for restaurant tables: talk to order, split the bill in plain words, pay with PayPal. AI runs on-device with cloud fallback (Firebase AI Logic hybrid inference).",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"tsx watch server/index.ts\" \"vite\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "tsx server/index.ts --prod",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "5.3.0",
+    "firebase": "13.1.0",
+    "react": "19.1.10",
+    "react-dom": "19.1.10",
+    "tsx": "4.23.15"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.6",
+    "@types/node": "24.19.2",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.1.2",
+    "concurrently": "9.2.5",
+    "typescript": "5.9.3",
+    "vite": "8.3.5"
+  }
+}
