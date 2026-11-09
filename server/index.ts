@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { MENU, RESTAURANT } from '../shared/menu.js';
 import { captureOrder, createOrder, paypalConfig, PayPalError } from './paypal.js';
 import { BadRequest, orderForCart, orderForShare } from './orders.js';
+import { sanitizeCart } from '../shared/cart.js';
 
 const app = express();
 app.disable('x-powered-by');
@@ -75,6 +76,40 @@ app.post('/api/orders/:id/capture', async (req, res, next) => {
     console.log(`[order] capture ${id}: ${status}`);
     res.json({ id, status, payer: p.payer, total: p.total });
   } catch (e) { next(e); }
+});
+
+// ---------- kitchen tickets ----------
+// The guest's order goes to the kitchen as item ids + notes; the kitchen screen shows names in the staff's
+// language and translates notes with the AI. Kept in memory for the demo (Merkevo stores them for real).
+type Ticket = { id: string; table: string; lines: { itemId: string; quantity: number; note?: string }[]; guestLang: string; at: string; done: boolean };
+const tickets: Ticket[] = [];
+
+app.post('/api/tables/:table/tickets', (req, res, next) => {
+  try {
+    const cart = sanitizeCart(req.body?.cart);
+    if (!cart.length) throw new BadRequest('The order is empty.');
+    const ticket: Ticket = {
+      id: randomUUID().slice(0, 8),
+      table: table(req),
+      lines: cart,
+      guestLang: String(req.body?.lang || 'en').replace(/[^a-z-]/gi, '').slice(0, 8),
+      at: new Date().toISOString(),
+      done: false,
+    };
+    tickets.unshift(ticket);
+    tickets.splice(100);
+    console.log(`[kitchen] ticket ${ticket.id} for table ${ticket.table}, ${cart.length} lines`);
+    res.json(ticket);
+  } catch (e) { next(e); }
+});
+
+app.get('/api/kitchen', (_req, res) => { res.json(tickets.slice(0, 50)); });
+
+app.post('/api/kitchen/:id/done', (req, res) => {
+  const t = tickets.find((x) => x.id === req.params.id);
+  if (!t) return res.status(404).json({ error: 'Unknown ticket' });
+  t.done = true;
+  res.json(t);
 });
 
 app.get('/api/tables/:table/payments', (req, res) => {

@@ -54,6 +54,19 @@ test('http: mock checkout flow, capture is idempotent, table ledger', async () =
   assert.equal(ledger[0].total, 1512); // 12.00 + 1.44 service + 1.68 tax
 });
 
+test('http: kitchen tickets are sanitised, listed newest first, and can be marked done', async () => {
+  const a = await post('/api/tables/3/tickets', { cart: [{ itemId: 'koshari', quantity: 2, note: 'sin cebolla' }, { itemId: 'nope', quantity: 1 }], lang: 'es' });
+  assert.equal(a.status, 200);
+  assert.deepEqual(a.json.lines, [{ itemId: 'koshari', quantity: 2, note: 'sin cebolla' }]);
+  assert.equal(a.json.guestLang, 'es');
+  const b = await post('/api/tables/4/tickets', { cart: [{ itemId: 'cola', quantity: 1 }] });
+  const list = await fetch(`${base}/api/kitchen`).then((r) => r.json());
+  assert.equal(list[0].id, b.json.id);
+  const done = await post(`/api/kitchen/${a.json.id}/done`, {});
+  assert.equal(done.json.done, true);
+  assert.equal((await post('/api/tables/3/tickets', { cart: [] })).status, 400);
+});
+
 test('http: empty order and unknown payer are rejected', async () => {
   assert.equal((await post('/api/orders', { cart: [] })).status, 400);
   assert.equal((await post('/api/orders', { cart: [{ itemId: 'fries', quantity: 1 }], plan: [], payerIndex: 3 })).status, 400);

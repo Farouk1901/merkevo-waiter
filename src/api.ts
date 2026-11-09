@@ -25,4 +25,9 @@ export const api = {
   createOrder: (table: string, cart: Cart, share?: { plan: SharePlan; payerIndex: number }) =>
     req<CreatedOrder>('/api/orders', { table, cart, ...(share ? share : {}), requestId: crypto.randomUUID() }),
   capture: (id: string) => req<Captured>(`/api/orders/${encodeURIComponent(id)}/capture`, {}),
+  sendTicket: (table: string, cart: Cart, lang: string) => req<Ticket>(`/api/tables/${encodeURIComponent(table)}/tickets`, { cart, lang }),
+  kitchen: () => req<Ticket[]>('/api/kitchen'),
+  ticketDone: (id: string) => req<Ticket>(`/api/kitchen/${encodeURIComponent(id)}/done`, {}),
 };
+
+export type Ticket = { id: string; table: string; lines: Cart; guestLang: string; at: string; done: boolean };

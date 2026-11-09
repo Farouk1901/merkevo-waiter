@@ -28,15 +28,23 @@ function loadSdk(clientId: string, currency: string): Promise<PayPalNs> {
   return sdk;
 }
 
+const COPY: Record<string, Record<string, string>> = {
+  confirming: { en: 'Confirming the payment with PayPal…', ar: 'بنأكد الدفع مع PayPal…' },
+  again: { en: 'Confirm payment again', ar: 'أكّد الدفع تاني' },
+  cancelled: { en: 'Payment cancelled. You can try again.', ar: 'اتلغى الدفع. تقدر تحاول تاني.' },
+  paying: { en: 'Paying…', ar: 'جاري الدفع…' },
+};
+
 export function PayButton({ config, table, cart, amount, label, share, onPaid }: Props) {
   const box = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   /** An order the guest approved in PayPal that we could not confirm yet (network drop). */
   const [pending, setPending] = useState<string | null>(null);
-  // Keep the latest inputs for PayPal callbacks without re-rendering the buttons on every change.
   const latest = useRef({ cart, share, onPaid });
   latest.current = { cart, share, onPaid };
+  const lang = document.documentElement.lang === 'ar' ? 'ar' : 'en';
+  const c = (k: string) => COPY[k][lang];
 
   /**
    * Capture an approved order. Retries quietly twice on network trouble; if it still fails, keeps the
@@ -47,21 +55,20 @@ export function PayButton({ config, table, cart, amount, label, share, onPaid }:
     setBusy(true);
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const c = await api.capture(orderId);
+        const r = await api.capture(orderId);
         setPending(null);
-        if (c.status === 'COMPLETED') latest.current.onPaid(c);
-        else setError(`Payment status: ${c.status}`);
+        if (r.status === 'COMPLETED') latest.current.onPaid(r);
+        else setError(`Payment status: ${r.status}`);
         break;
       } catch (e) {
         const retryable = e instanceof ApiError && e.retryable;
-        if (retryable && attempt < 3) { await new Promise((r) => setTimeout(r, 1500 * attempt)); continue; }
+        if (retryable && attempt < 3) { await new Promise((res) => setTimeout(res, 1500 * attempt)); continue; }
         if (retryable) setPending(orderId);
         setError((e as Error).message);
       }
     }
     setBusy(false);
   }
-
   const confirmRef = useRef(confirm);
   confirmRef.current = confirm;
 
@@ -76,15 +83,16 @@ export function PayButton({ config, table, cart, amount, label, share, onPaid }:
       if (cancelled || !box.current) return;
       box.current.innerHTML = '';
       buttons = paypal.Buttons({
-        style: { layout: 'horizontal', height: 40, tagline: false, label: 'pay' },
+        style: { layout: 'horizontal', height: 44, tagline: false, label: 'pay', shape: 'pill' },
         createOrder: async () => (await api.createOrder(table, latest.current.cart, latest.current.share)).id,
         onApprove: (data: { orderID: string }) => confirmRef.current(data.orderID),
-        onCancel: () => setError('Payment cancelled. You can try again.'),
+        onCancel: () => setError(c('cancelled')),
         onError: (e: Error) => setError(e?.message || 'PayPal error'),
       });
       buttons.render(box.current).catch((e: Error) => setError(e.message));
     }).catch((e: Error) => setError(e.message));
     return () => { cancelled = true; buttons?.close?.(); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mock, amount, table, config]);
 
   async function payMock() {
@@ -92,8 +100,7 @@ export function PayButton({ config, table, cart, amount, label, share, onPaid }:
     setError('');
     try {
       const o = await api.createOrder(table, cart, share);
-      const c = await api.capture(o.id);
-      onPaid(c);
+      onPaid(await api.capture(o.id));
     } catch (e) {
       setError((e as Error).message);
     }
@@ -104,18 +111,15 @@ export function PayButton({ config, table, cart, amount, label, share, onPaid }:
   return (
     <div className="pay">
       {mock ? (
-        <button className="btn primary" onClick={payMock} disabled={busy} aria-label={`${label}: pay ${fmt(amount)} dollars in demo mode`}>
-          {busy ? 'Paying…' : `${label} · $${fmt(amount)}`}<span className="tag">demo</span>
+        <button className="btn primary block" onClick={payMock} disabled={busy}>
+          {busy ? c('paying') : `${label} · $${fmt(amount)}`}<span className="badge">demo</span>
         </button>
       ) : (
-        // Hidden (not removed) while an approved payment waits, so the guest can't start a second one.
-        <div ref={box} className="pp-box" hidden={!!pending} aria-label={`${label}: pay ${fmt(amount)} dollars with PayPal`} />
+        <div ref={box} className="pp-box" hidden={!!pending} aria-label={`${label}: $${fmt(amount)} PayPal`} />
       )}
-      {busy && !mock && <p className="muted small" role="status">Confirming the payment with PayPal…</p>}
+      {busy && !mock && <p className="muted small" role="status">{c('confirming')}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      {pending && !busy && (
-        <button className="btn primary" onClick={() => confirm(pending)}>Confirm payment again</button>
-      )}
+      {pending && !busy && <button className="btn primary block" onClick={() => confirm(pending)}>{c('again')}</button>}
     </div>
   );
 }
