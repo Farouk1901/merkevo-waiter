@@ -6,7 +6,7 @@ import { api, type AppConfig, type Captured } from './api';
 import { downloadOnDeviceModel, status as engineStatus, understandOrder, understandSplit, type EngineStatus, type Source } from './ai/engine';
 import { PayButton } from './components/PayButton';
 import { DishArt, GlobeIcon, Logo, MicIcon } from './components/Art';
-import { LANGS, detectLang, itemText, makeT, tagText, type Lang } from './i18n';
+import { LANGS, LANG_NAME_EN, detectLang, itemText, makeT, tagText, type Lang } from './i18n';
 import { useSpeech } from './speech';
 
 type Msg = { from: 'guest' | 'waiter'; text: string; source?: Source; ms?: number };
@@ -58,7 +58,7 @@ export function App() {
   useEffect(() => { document.body.style.overflow = sheet ? 'hidden' : ''; }, [sheet]);
 
   const tot = useMemo(() => totals(cart), [cart]);
-  const split = useMemo(() => (plan ? splitBill(cart, plan) : null), [cart, plan]);
+  const split = useMemo(() => (plan ? splitBill(cart, plan, MENU, { nameOf: (id) => itemText(lang, MENU.find((m) => m.id === id)!).name, shared: t('shared') }) : null), [cart, plan, lang, t]);
   const pairs = useMemo(() => suggestions(cart), [cart]);
   const count = cart.reduce((s, l) => s + l.quantity, 0);
   const paidTotal = paid.reduce((s, p) => s + p.total, 0);
@@ -88,7 +88,7 @@ export function App() {
     setMsgs((m) => [...m, { from: 'guest', text: said }]);
     setThinking(true);
     const started = performance.now();
-    const r = await understandOrder(cart, said);
+    const r = await understandOrder(cart, said, LANG_NAME_EN[lang]);
     const ms = Math.round(performance.now() - started);
     if (locked && r.actions.length) {
       setMsgs((m) => [...m, { from: 'waiter', text: t('locked'), source: r.source, ms }]);
@@ -106,7 +106,7 @@ export function App() {
     if (!said || !cart.length) return;
     setSplitText(said);
     setThinking(true);
-    const r = await understandSplit(cart, said);
+    const r = await understandSplit(cart, said, LANG_NAME_EN[lang]);
     setPlan(r.plan.length ? r.plan : null);
     setSplitNote(`${r.reply} · ${srcLabel(r.source)}`);
     setThinking(false);
@@ -306,7 +306,7 @@ export function App() {
                   </form>
                   {!locked && <div className="chips">{[t('sx1'), t('sx2')].map((x) => <button key={x} className="chip" dir="auto" onClick={() => doSplit(x)} disabled={thinking}>{x}</button>)}</div>}
                   {splitNote && <p className="muted small">{splitNote}</p>}
-                  {split?.warnings.map((w) => <p key={w} className="warn-text small">{w}</p>)}
+                  {split?.warnings.map((w) => <p key={w} className="warn-text small">{/nobody claimed/.test(w) ? t('unclaimed') : w}</p>)}
                   {split && plan && (
                     <ul className="shares">
                       {split.shares.map((s, i) => {

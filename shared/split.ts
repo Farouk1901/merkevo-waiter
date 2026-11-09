@@ -28,14 +28,19 @@ const MAX_PAYERS = 12;
  * - Service and tax follow each person's share of the subtotal.
  * - Rounding leftovers (a cent or two) go to the first payers, so the sum is exact.
  */
-export function splitBill(cart: Cart, plan: SharePlan, menu: MenuItem[] = MENU): SplitResult {
+export function splitBill(
+  cart: Cart, plan: SharePlan, menu: MenuItem[] = MENU,
+  /** Optional display texts, so the item lists match the guest's language. */
+  labels: { nameOf?: (id: string) => string; shared?: string } = {},
+): SplitResult {
   const warnings: string[] = [];
   const payers = dedupePayers(plan.map((p) => p.payer)).slice(0, MAX_PAYERS);
   if (!payers.length) return { shares: [], warnings: ['No payers given.'] };
   if (plan.length > MAX_PAYERS) warnings.push(`Only the first ${MAX_PAYERS} payers are used.`);
 
   const price = (id: string) => Math.round((menu.find((m) => m.id === id)?.price ?? 0) * 100);
-  const nameOf = (id: string) => menu.find((m) => m.id === id)?.name ?? id;
+  const nameOf = labels.nameOf ?? ((id: string) => menu.find((m) => m.id === id)?.name ?? id);
+  const sharedWord = labels.shared ?? 'shared';
   const remaining = new Map(cart.map((l) => [l.itemId, l.quantity]));
   // claimed[payerIndex] = subtotal in "cent units" (may be fractional until the end)
   const claimed = payers.map(() => 0);
@@ -66,7 +71,7 @@ export function splitBill(cart: Cart, plan: SharePlan, menu: MenuItem[] = MENU):
   for (const [id, left] of remaining) if (left > 1e-9) {
     unclaimed += left * price(id);
     const each = left / takers.length;
-    takers.forEach((i) => itemsText[i].push(`${restIdx.length ? '' : 'shared '}${fmtUnits(each)} × ${nameOf(id)}`));
+    takers.forEach((i) => itemsText[i].push(`${restIdx.length ? '' : sharedWord + ' '}${fmtUnits(each)} × ${nameOf(id)}`));
   }
   if (unclaimed > 0 && !restIdx.length && plan.some((p) => p.lines?.length)) warnings.push('Items nobody claimed are split equally.');
   const raw = claimed.map((c, i) => c + (takers.includes(i) ? unclaimed / takers.length : 0));
