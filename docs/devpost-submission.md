@@ -74,7 +74,7 @@ paypal, paypal-orders-api, paypal-js-sdk, ag-grid, gemini, firebase-ai-logic, fi
 - https://github.com/Farouk1901/merkevo-waiter (source code, MIT)
 
 ## Video demo link
-https://youtu.be/IR1rP9inKag
+https://youtu.be/cQ36ZbEzM5k
 
 ---
 
