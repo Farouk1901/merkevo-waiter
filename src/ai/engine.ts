@@ -199,17 +199,23 @@ export async function status(): Promise<EngineStatus> {
   return { engine: onDevice === 'available' ? 'chrome-built-in' : 'rules', onDevice };
 }
 
+/** Never let a guest wait forever: a stuck network (or a blocked reCAPTCHA script) falls back to the offline rules. */
+export function withTimeout<T>(p: Promise<T>, ms = AI_TIMEOUT_MS): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error("AI timeout")), ms))]);
+}
+const AI_TIMEOUT_MS = 15_000;
+
 async function runModel(kind: 'order' | 'split', prompt: string): Promise<{ json: unknown; source: Source }> {
   const fb = initFirebase();
   if (fb) {
-    const res = await fb[kind].generateContent(prompt);
+    const res = await withTimeout(fb[kind].generateContent(prompt));
     const source: Source = res.response.inferenceSource === 'in_cloud' ? 'cloud' : 'on-device';
     return { json: JSON.parse(res.response.text()), source };
   }
   const lm = chromeModel();
   if (lm && (await lm.availability()) === 'available') {
     const session = await lm.create();
-    const text = await session.prompt(prompt, { responseConstraint: kind === 'order' ? orderJsonSchema : splitJsonSchema });
+    const text = await withTimeout(session.prompt(prompt, { responseConstraint: kind === "order" ? orderJsonSchema : splitJsonSchema }));
     return { json: JSON.parse(text), source: 'on-device' };
   }
   throw new Error('no model');
@@ -295,7 +301,7 @@ export async function translateNotes(notes: string[], targetLanguage: string): P
   try {
     const fb = initFirebase();
     if (fb) {
-      const res = await fb.translate.generateContent(prompt);
+      const res = await withTimeout(fb.translate.generateContent(prompt));
       const out = (JSON.parse(res.response.text()) as { translations?: unknown }).translations;
       if (Array.isArray(out) && out.length === notes.length) {
         return { texts: out.map((x, i) => String(x || notes[i]).slice(0, 160)), source: res.response.inferenceSource === 'in_cloud' ? 'cloud' : 'on-device' };
