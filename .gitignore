@@ -5,3 +5,4 @@ dist/
 *.log
 docs/video/raw/
 docs/video/out/
+.claude/

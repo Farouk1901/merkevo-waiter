@@ -1,6 +1,7 @@
 import type { Cart } from '../shared/cart';
 import type { SharePlan } from '../shared/split';
 import type { RESTAURANT } from '../shared/menu';
+import type { PaymentRow } from '../shared/sales';
 
 export type AppConfig = { restaurant: typeof RESTAURANT; paypal: { mode: 'mock' } | { mode: 'sandbox' | 'live'; clientId: string } };
 export type CreatedOrder = { id: string; total: number; payer: string; mock: boolean };
@@ -28,6 +29,8 @@ export const api = {
   sendTicket: (table: string, cart: Cart, lang: string) => req<Ticket>(`/api/tables/${encodeURIComponent(table)}/tickets`, { cart, lang }),
   kitchen: () => req<Ticket[]>('/api/kitchen'),
   ticketDone: (id: string) => req<Ticket>(`/api/kitchen/${encodeURIComponent(id)}/done`, {}),
+  ownerPayments: () => req<PaymentRow[]>('/api/owner/payments'),
+  refund: (orderId: string) => req<PaymentRow>(`/api/owner/payments/${encodeURIComponent(orderId)}/refund`, {}),
 };
 
 export type Ticket = { id: string; table: string; lines: Cart; guestLang: string; at: string; done: boolean };

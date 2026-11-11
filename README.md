@@ -2,7 +2,7 @@
 
 **An AI waiter for restaurant tables. Guests order by talking, in their own language. They split the bill in plain words, and each person pays their share with PayPal. The kitchen gets the order in its own language.**
 
-**Live demo:** https://waiter.lexu.io · **Kitchen screen:** https://waiter.lexu.io/kitchen
+**Live demo:** https://waiter.lexu.io · **Kitchen screen:** https://waiter.lexu.io/kitchen · **Owner dashboard (AG Grid):** https://waiter.lexu.io/owner
 *(PayPal sandbox. No real money moves. Pay with any PayPal sandbox personal account.)*
 
 | Phone: talk to the waiter | Menu | Order and pay | Receipt |
@@ -12,6 +12,10 @@
 | Desktop in Arabic (right to left) | Kitchen: a French order, shown in Arabic |
 |---|---|
 | ![Desktop](docs/screenshots/desktop-arabic.jpg) | ![Kitchen](docs/screenshots/kitchen-arabic.jpg) |
+
+**Owner dashboard:** every PayPal order in an AG Grid. Ask "biggest orders over $40" and the AI sets the grid's filters and sort.
+
+![Owner dashboard](docs/screenshots/owner-ag-grid.jpg)
 
 ## The problem
 - **Tourists and staff don't share a language.** A Spanish guest in a Cairo restaurant points at the menu; the note "sin cebolla" never reaches the cook.
@@ -26,6 +30,9 @@
 | **Kitchen in its own language** | "Send to kitchen" puts the ticket on `/kitchen`. Item names show in the staff's language, and the guest's free-text notes are translated by the same AI, with the original underneath. |
 | **Split in plain words** | "Sara pays 2 shawarma and half the karkade, Omar pays 1 koshari, Mona the rest", or "split it 3 ways". Service and VAT follow each share, and the cents always add up to the table total. |
 | **Everyone pays their share with PayPal** | One PayPal button per person (PayPal Orders v2). The order locks after the first payment, and a receipt lists every payer and PayPal transaction. |
+| **Owner dashboard with AG Grid** | `/owner` lists every PayPal order from every table in an [AG Grid](https://www.ag-grid.com/) (Community): sort, filter, search, paging, a pinned totals row and CSV export. Summary cards follow whatever the grid shows. New payments appear live and flash. |
+| **Ask your sales in plain words** | "Unpaid orders today", "refunds this week", «طلبات ترابيزة 7 المدفوعة». The same hybrid AI turns the question into ordinary AG Grid filter models and sort (status, table, total range, time window, search), so the owner sees exactly what was applied in the column menus and can change it. Offline rules answer when no model is available. |
+| **Refunds through PayPal** | Paid orders have a two-click *Refund* in the grid. It calls the PayPal Payments v2 refund API on the captured payment with an idempotency key, so a double click never refunds twice. |
 | **Shows where the AI ran** | Every reply is tagged *On-device · Gemini Nano*, *Cloud · Gemini* or *Offline rules*, with its response time. |
 
 ## How it works
@@ -62,6 +69,7 @@ With no keys it runs in **demo mode**: payments are simulated, and the AI uses C
 ```bash
 npm run build && npm start   # one Node server serves the app and the API
 ```
+Set `PAYMENTS_FILE` to keep the order history across restarts. The dashboard also shows a week of clearly labelled *Sample* orders so it is never empty in a demo (`SAMPLE_PAYMENTS=0` turns them off); sample orders are never sent to PayPal.
 `deploy/merkevo-waiter.service` is the systemd unit used for the live demo. It runs under a dedicated user, on 127.0.0.1 only, behind Caddy.
 
 ## Project layout
@@ -69,8 +77,9 @@ npm run build && npm start   # one Node server serves the app and the API
 |---|---|
 | `shared/` | Menu, cart maths, bill splitting and the rule-based parser. Pure TypeScript, shared by the browser and the server. |
 | `src/ai/engine.ts` | Hybrid inference (Firebase AI Logic), the Chrome built-in fallback, prompts, schemas, validation and kitchen-note translation. |
-| `src/` | React UI: `App.tsx` (guest), `Kitchen.tsx` (staff), `i18n.ts` (7 languages), `speech.ts` (voice input). |
-| `server/` | Express API, a small PayPal Orders v2 client, and kitchen tickets. |
-| `test/` | Node test runner: cart, split, parser, PayPal order body, API flow, capture after a network drop, kitchen tickets. |
+| `src/` | React UI: `App.tsx` (guest), `Kitchen.tsx` (staff), `Owner.tsx` (owner dashboard, AG Grid, loaded only on `/owner`), `i18n.ts` (7 languages), `speech.ts` (voice input). |
+| `shared/sales.ts` | Sales questions: validation of the AI's answer, offline rules, and the AG Grid filter model it becomes. |
+| `server/` | Express API, a small PayPal client (Orders v2 and refunds), kitchen tickets, and the order ledger (`ledger.ts`, saved to `PAYMENTS_FILE` when set). |
+| `test/` | Node test runner: cart, split, parser, PayPal order body, API flow, capture after a network drop, refunds, kitchen tickets, sales questions and grid filters. |
 
 Built by Ahmed Farouk as part of the Merkevo restaurant platform. This waiter is a standalone, open-source module. License: MIT.

@@ -124,3 +124,8 @@ export async function captureOrder(cfg: NonNullable<PayPalConfig>, id: string, r
   return call<{ id: string; status: string; purchase_units?: { payments?: { captures?: { id: string; status: string }[] } }[] }>(
     cfg, `/v2/checkout/orders/${encodeURIComponent(id)}/capture`, undefined, requestId);
 }
+
+/** Full refund of a captured payment. The same requestId never refunds twice. */
+export async function refundCapture(cfg: NonNullable<PayPalConfig>, captureId: string, requestId: string) {
+  return call<{ id: string; status: string }>(cfg, `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`, {}, requestId);
+}

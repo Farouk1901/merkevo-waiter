@@ -4,7 +4,9 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MENU, RESTAURANT } from '../shared/menu.js';
-import { captureOrder, createOrder, paypalConfig, PayPalError } from './paypal.js';
+import { captureOrder, createOrder, paypalConfig, PayPalError, refundCapture } from './paypal.js';
+import { ledger } from './ledger.js';
+import type { PaymentSource } from '../shared/sales.js';
 import { BadRequest, orderForCart, orderForShare } from './orders.js';
 import { sanitizeCart } from '../shared/cart.js';
 
@@ -23,9 +25,8 @@ const PORT = Number(process.env.API_PORT) || (PROD ? Number(process.env.PORT) ||
 // Listen on loopback only by default; the reverse proxy is the only way in.
 const HOST = process.env.HOST || '127.0.0.1';
 
-// Payments per table, in memory. Enough for a demo; a real restaurant keeps this in Merkevo.
-type Payment = { orderId: string; table: string; payer: string; total: number; status: 'CREATED' | 'COMPLETED'; at: string };
-const payments = new Map<string, Payment>();
+// Every order goes into the ledger the owner sees on /owner (server/ledger.ts).
+const SOURCE: PaymentSource = !paypal ? 'mock' : process.env.PAYPAL_ENV === 'live' ? 'paypal-live' : 'paypal-sandbox';
 
 // Tiny per-IP rate limit: 60 requests a minute on the API.
 const hits = new Map<string, { n: number; reset: number }>();
@@ -60,7 +61,14 @@ app.post('/api/orders', async (req, res, next) => {
     const order = paypal
       ? await createOrder(paypal, built.req, requestId)
       : { id: `MOCK-${randomUUID().slice(0, 8).toUpperCase()}`, status: 'CREATED' };
-    payments.set(order.id, { orderId: order.id, table: t, payer: built.payer, total: built.req.total, status: 'CREATED', at: new Date().toISOString() });
+    const r = built.req;
+    ledger.put({
+      orderId: order.id, table: t, payer: built.payer,
+      items: isShare ? r.items[0].description || r.items[0].name : r.items.map((i) => `${i.quantity}× ${i.name}`).join(', '),
+      itemCount: isShare ? (r.items[0].description || '').split(', ').filter(Boolean).length || 1 : r.items.reduce((s, i) => s + i.quantity, 0),
+      subtotal: r.itemTotal, service: r.service, tax: r.tax, total: r.total,
+      status: 'CREATED', source: SOURCE, at: new Date().toISOString(),
+    });
     console.log(`[order] created ${order.id} (${order.status}) table ${t}, ${built.payer}, ${(built.req.total / 100).toFixed(2)}`);
     res.json({ id: order.id, total: built.req.total, payer: built.payer, mock: !paypal });
   } catch (e) { next(e); }
@@ -69,15 +77,18 @@ app.post('/api/orders', async (req, res, next) => {
 app.post('/api/orders/:id/capture', async (req, res, next) => {
   try {
     const id = String(req.params.id);
-    const p = payments.get(id);
-    if (!p) throw new BadRequest('Unknown order.');
-    if (p.status === 'COMPLETED') return res.json({ id, status: 'COMPLETED', payer: p.payer, total: p.total });
+    const p = ledger.get(id);
+    if (!p || p.source === 'sample') throw new BadRequest('Unknown order.');
+    if (p.status !== 'CREATED') return res.json({ id, status: p.status, payer: p.payer, total: p.total });
     let status = 'COMPLETED';
+    let captureId: string | undefined;
     if (paypal) {
       const cap = await captureOrder(paypal, id, `capture-${id}`);
-      status = cap.purchase_units?.[0]?.payments?.captures?.[0]?.status || cap.status;
+      const c = cap.purchase_units?.[0]?.payments?.captures?.[0];
+      status = c?.status || cap.status;
+      captureId = c?.id;
     }
-    if (status === 'COMPLETED') p.status = 'COMPLETED';
+    if (status === 'COMPLETED') ledger.update(id, { status: 'COMPLETED', ...(captureId ? { captureId } : {}) });
     console.log(`[order] capture ${id}: ${status}`);
     res.json({ id, status, payer: p.payer, total: p.total });
   } catch (e) { next(e); }
@@ -119,7 +130,30 @@ app.post('/api/kitchen/:id/done', (req, res) => {
 
 app.get('/api/tables/:table/payments', (req, res) => {
   const t = table(req);
-  res.json([...payments.values()].filter((p) => p.table === t && p.status === 'COMPLETED'));
+  res.json(ledger.all().filter((p) => p.table === t && p.status === 'COMPLETED' && p.source !== 'sample'));
+});
+
+// ---------- owner dashboard ----------
+// Demo: open to anyone so judges can try it. In Merkevo this sits behind the owner's login.
+app.get('/api/owner/payments', (_req, res) => { res.json(ledger.all()); });
+
+app.post('/api/owner/payments/:id/refund', async (req, res, next) => {
+  try {
+    const id = String(req.params.id);
+    const p = ledger.get(id);
+    if (!p) throw new BadRequest('Unknown order.');
+    if (p.status === 'REFUNDED') return res.json(p);
+    if (p.status !== 'COMPLETED') throw new BadRequest('Only paid orders can be refunded.');
+    let refundId = `LOCAL-${randomUUID().slice(0, 8).toUpperCase()}`;
+    if (p.source.startsWith('paypal')) {
+      if (!paypal || !p.captureId) throw new BadRequest('This payment has no PayPal capture to refund.');
+      const r = await refundCapture(paypal, p.captureId, `refund-${p.captureId}`);
+      if (r.status !== 'COMPLETED' && r.status !== 'PENDING') throw new BadRequest(`PayPal refund status: ${r.status}`);
+      refundId = r.id;
+    }
+    console.log(`[order] refund ${id} (${p.source}) -> ${refundId}`);
+    res.json(ledger.update(id, { status: 'REFUNDED', refundId, refundedAt: new Date().toISOString() }));
+  } catch (e) { next(e); }
 });
 
 app.use('/api', (_req, res) => { res.status(404).json({ error: 'Not found' }); });

@@ -12,6 +12,7 @@ const realFetch = globalThis.fetch;
 let captureFailuresLeft = 0;
 let captureCalls = 0;
 const requestIds: string[] = [];
+const refunds: { url: string; id: string }[] = [];
 
 globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
@@ -19,6 +20,10 @@ globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const json = (b: unknown) => new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } });
   if (url.endsWith('/v1/oauth2/token')) return json({ access_token: 't', expires_in: 3600 });
   if (url.endsWith('/v2/checkout/orders')) return json({ id: 'ORDER1', status: 'CREATED' });
+  if (url.includes('/v2/payments/captures/')) {
+    refunds.push({ url, id: String((init?.headers as Record<string, string>)['PayPal-Request-Id']) });
+    return json({ id: 'REFUND1', status: 'COMPLETED' });
+  }
   if (url.includes('/capture')) {
     captureCalls++;
     requestIds.push(String((init?.headers as Record<string, string>)['PayPal-Request-Id']));
@@ -54,4 +59,17 @@ test('capture: network drop gives 504 retryable, then the same order completes',
   // Every capture attempt for this order used the same idempotency key.
   assert.equal(new Set(requestIds).size, 1);
   assert.equal(captureCalls, 4);
+});
+
+test('refund: the owner refunds the captured payment through PayPal, once', async () => {
+  const r1 = await post('/api/owner/payments/ORDER1/refund', {});
+  assert.equal(r1.status, 200);
+  assert.equal(r1.json.status, 'REFUNDED');
+  assert.equal(r1.json.refundId, 'REFUND1');
+  assert.equal(r1.json.captureId, 'CAP1');
+  const r2 = await post('/api/owner/payments/ORDER1/refund', {});
+  assert.equal(r2.json.refundId, 'REFUND1');
+  assert.equal(refunds.length, 1);
+  assert.match(refunds[0].url, /\/v2\/payments\/captures\/CAP1\/refund$/);
+  assert.equal(refunds[0].id, 'refund-CAP1');
 });
